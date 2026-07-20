@@ -67,6 +67,29 @@ ssh root@10.11.99.1 '/home/root/profiles/rm-profile switch duncan'   # back to y
 Find the tablet's wifi IP: `ssh root@10.11.99.1 'ip -4 addr show wlan0'`. Reserve the DHCP
 lease or add a `.lan` record so it's stable.
 
+### 5a. Enable SSH over wifi (required on OS 3.x+)
+
+Newer reMarkable OS ships dropbear **socket-activated on USB only**
+(`dropbear-usb0/usb1.socket`), so any LAN/phone SSH is *refused* until you flip
+reMarkable's own wifi-SSH toggle — a marker file gated by
+`dropbear-wlan.socket.d/override.conf`. Because our live config path is a symlink into the
+*active* profile, create the marker in **every** profile so it stays on across switches:
+
+```
+ssh root@10.11.99.1 'touch /home/root/profiles/duncan/config/rm_enable_ssh_wifi_marker /home/root/profiles/kid/config/rm_enable_ssh_wifi_marker; systemctl restart dropbear-wlan.socket'
+```
+
+Confirm: `systemctl show dropbear-wlan.socket -p ConditionResult` → `yes`. This lives under
+`/home/root`, so it survives OS updates.
+
+**This opens root SSH on your LAN.** Harden the wifi-exposed key so it can only switch
+profiles: deploy `bin/rm-ssh-forced`, then prefix that key's line in
+`/home/root/.ssh/authorized_keys` with
+`command="/home/root/profiles/rm-ssh-forced",no-port-forwarding,no-agent-forwarding,no-pty`.
+The client's requested command is ignored except for the trailing profile name, which must
+be on the wrapper's allowlist. (Password auth over wifi remains available; disable it
+separately if you want.)
+
 **From a Mac:** `RM_HOST=<wifi-ip> scripts/rm-switch kid` (and `… duncan`).
 
 **iPhone Shortcut (handoff-friendly):**
