@@ -1,0 +1,108 @@
+#!/bin/sh
+# rm-profile-setup — one-time install of reMarkable Profiles on a reMarkable 2.
+#
+# Backs up current data, migrates it into an owner profile, creates a local-only
+# child profile, installs the engine + pad + systemd gate, and sets PINs.
+#
+# DESTRUCTIVE. Run once, on-device, over SSH, as root. Use --dry-run first to
+# see every action without touching anything. This is convenience + basic
+# privacy, not a security boundary.
+#
+# Paths are env-overridable so --dry-run can target a scratch tree.
+set -eu
+
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
+SHARE_DIR="${RMP_SHARE_DIR:-/home/root/.local/share/remarkable}"
+CONFIG_DIR="${RMP_CONFIG_DIR:-/home/root/.config/remarkable}"
+PROFILES_DIR="${RMP_PROFILES_DIR:-/home/root/profiles}"
+UNIT_DIR="${RMP_UNIT_DIR:-/etc/systemd/system}"
+SRC="${RMP_SRC:-$(unset CDPATH; cd -- "$(dirname -- "$0")/.." && pwd)}"
+PAD_BIN="${RMP_PAD_BIN:-$SRC/rm-profile-pad}"
+BACKUP_DIR="${RMP_BACKUP_DIR:-/home/root/rmprofile-backup}"
+
+say() { printf '==> %s\n' "$1"; }
+die() { printf 'setup: %s\n' "$1" >&2; exit 1; }
+
+run() {
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'DRY-RUN: %s\n' "$*"
+  else
+    "$@"
+  fi
+}
+
+confirm() {
+  [ "$DRY_RUN" = "1" ] && return 0
+  printf '%s [y/N] ' "$1" >&2
+  read -r reply
+  case "$reply" in
+    y | Y | yes | YES) return 0 ;;
+    *) die "aborted by user" ;;
+  esac
+}
+
+# --- preconditions ---
+if [ "$DRY_RUN" = "0" ]; then
+  [ "$(id -u)" = "0" ] || die "must run as root"
+  [ -d "$SHARE_DIR" ] || die "no reMarkable data at $SHARE_DIR — is this an rM2?"
+  [ -x "$SRC/bin/rm-profile" ] || die "engine not found at $SRC/bin/rm-profile"
+  [ -f "$PAD_BIN" ] || die "pad binary not found at $PAD_BIN (cross-build and scp it first)"
+fi
+
+say "reMarkable Profiles setup (dry-run=$DRY_RUN)"
+say "  share:    $SHARE_DIR"
+say "  config:   $CONFIG_DIR"
+say "  profiles: $PROFILES_DIR"
+
+# --- 1. backup ---
+say "Step 1/7: backup current data to $BACKUP_DIR"
+run mkdir -p "$BACKUP_DIR"
+run cp -a "$SHARE_DIR" "$BACKUP_DIR/share-remarkable"
+[ -d "$CONFIG_DIR" ] && run cp -a "$CONFIG_DIR" "$BACKUP_DIR/config-remarkable"
+say "Backup written. COPY IT OFF THE DEVICE NOW (scp -r root@DEVICE:$BACKUP_DIR .)"
+confirm "Have you copied the backup off-device?"
+
+# --- 2. stop xochitl ---
+say "Step 2/7: stop xochitl"
+run systemctl stop xochitl
+
+# --- 3. migrate current data into the owner profile ---
+say "Step 3/7: migrate current data into '$PROFILES_DIR/duncan'"
+run mkdir -p "$PROFILES_DIR/duncan"
+run mv "$SHARE_DIR/xochitl" "$PROFILES_DIR/duncan/xochitl"
+run mv "$CONFIG_DIR" "$PROFILES_DIR/duncan/config"
+
+# --- 4. live symlinks + active pointer ---
+say "Step 4/7: create live symlinks and active pointer"
+run ln -sfn duncan "$PROFILES_DIR/active"
+run ln -sfn "$PROFILES_DIR/active/xochitl" "$SHARE_DIR/xochitl"
+run ln -sfn "$PROFILES_DIR/active/config" "$CONFIG_DIR"
+
+# --- 5. install engine, pad, unit ---
+say "Step 5/7: install engine, pad, and systemd gate"
+run cp "$SRC/bin/rm-profile" "$PROFILES_DIR/rm-profile"
+run chmod +x "$PROFILES_DIR/rm-profile"
+run cp "$PAD_BIN" "$PROFILES_DIR/rm-profile-pad"
+run chmod +x "$PROFILES_DIR/rm-profile-pad"
+run cp "$SRC/systemd/rm-profile-pad.service" "$UNIT_DIR/rm-profile-pad.service"
+run systemctl daemon-reload
+run systemctl enable rm-profile-pad.service
+
+# --- 6. create child profile ---
+say "Step 6/7: create local-only child profile"
+run "$PROFILES_DIR/rm-profile" create kid
+
+# --- 7. set PINs ---
+say "Step 7/7: set PINs (stored as salted hashes in $PROFILES_DIR/pins.conf)"
+if [ "$DRY_RUN" = "1" ]; then
+  printf 'DRY-RUN: rm-profile set-pin duncan <prompt>\n'
+  printf 'DRY-RUN: rm-profile set-pin kid <prompt>\n'
+else
+  RMP_PROFILES_DIR="$PROFILES_DIR" "$PROFILES_DIR/rm-profile" set-pin duncan
+  RMP_PROFILES_DIR="$PROFILES_DIR" "$PROFILES_DIR/rm-profile" set-pin kid
+fi
+
+say "Done. Review docs/INSTALL.md for the rm2fb setup and boot-model choice,"
+say "then reboot: systemctl reboot"
