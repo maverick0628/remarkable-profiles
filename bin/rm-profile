@@ -1,0 +1,151 @@
+#!/bin/sh
+# rm-profile — switch between reMarkable user profiles.
+#
+# A profile is a directory under $RMP_PROFILES_DIR holding `xochitl/` (documents)
+# and `config/` (settings, PIN, cloud token). A single `active` symlink pivots
+# which profile the live paths resolve to. Switching stops xochitl, repoints
+# `active`, and starts xochitl again.
+#
+# This is convenience and basic privacy only, NOT a security boundary. Anyone
+# with root/SSH/USB access can read every profile.
+#
+# Paths and the xochitl start/stop/status commands are read from the environment
+# so the test suite can run this against a scratch directory. Production defaults
+# target a real reMarkable 2.
+set -eu
+
+RMP_PROFILES_DIR="${RMP_PROFILES_DIR:-/home/root/profiles}"
+RMP_STOP_CMD="${RMP_STOP_CMD:-systemctl stop xochitl}"
+RMP_START_CMD="${RMP_START_CMD:-systemctl start xochitl}"
+RMP_STATUS_CMD="${RMP_STATUS_CMD:-systemctl is-active xochitl}"
+
+die() {
+  printf 'rm-profile: %s\n' "$1" >&2
+  exit 1
+}
+
+# _hash <string> — lowercase hex SHA-256. MUST match rmprofile-core::hash_pin.
+_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print $1}'
+  else
+    printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+  fi
+}
+
+# _salt — 16 random bytes as 32 hex chars.
+_salt() {
+  if command -v od >/dev/null 2>&1; then
+    head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'
+  else
+    head -c 16 /dev/urandom | hexdump -v -e '/1 "%02x"'
+  fi
+}
+
+# _current — name the active symlink points at, or empty string.
+_current() {
+  if [ -L "$RMP_PROFILES_DIR/active" ]; then
+    basename "$(readlink "$RMP_PROFILES_DIR/active")"
+  else
+    printf ''
+  fi
+}
+
+# _valid_profile <name> — succeeds if the profile has xochitl/ and config/.
+_valid_profile() {
+  [ -d "$RMP_PROFILES_DIR/$1/xochitl" ] && [ -e "$RMP_PROFILES_DIR/$1/config" ]
+}
+
+cmd_list() {
+  current="$(_current)"
+  for dir in "$RMP_PROFILES_DIR"/*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    [ "$name" = "active" ] && continue
+    _valid_profile "$name" || continue
+    if [ "$name" = "$current" ]; then
+      printf '* %s\n' "$name"
+    else
+      printf '  %s\n' "$name"
+    fi
+  done
+}
+
+cmd_status() {
+  current="$(_current)"
+  [ -n "$current" ] || current="(none)"
+  printf 'active profile: %s\n' "$current"
+  printf 'xochitl: %s\n' "$(sh -c "$RMP_STATUS_CMD" 2>/dev/null || printf 'unknown')"
+  if [ "$current" != "(none)" ] && _valid_profile "$current"; then
+    printf 'health: ok\n'
+    return 0
+  fi
+  printf 'health: BROKEN — active profile missing or malformed\n' >&2
+  return 1
+}
+
+cmd_create() {
+  name="${1:-}"
+  [ -n "$name" ] || die "usage: rm-profile create <name>"
+  [ "$name" = "active" ] && die "'active' is a reserved name"
+  target="$RMP_PROFILES_DIR/$name"
+  [ -e "$target" ] && die "profile '$name' already exists"
+  mkdir -p "$target/xochitl" "$target/config"
+  printf 'created profile: %s\n' "$name"
+}
+
+cmd_switch() {
+  name="${1:-}"
+  [ -n "$name" ] || die "usage: rm-profile switch <name>"
+  _valid_profile "$name" || die "profile '$name' does not exist or is malformed"
+  if [ "$(_current)" = "$name" ]; then
+    printf 'already active: %s\n' "$name"
+    return 0
+  fi
+  sh -c "$RMP_STOP_CMD"
+  sync
+  ln -sfn "$name" "$RMP_PROFILES_DIR/active"
+  sync
+  sh -c "$RMP_START_CMD"
+  printf 'switched to %s\n' "$name"
+}
+
+cmd_set_pin() {
+  name="${1:-}"
+  pin="${2:-}"
+  [ -n "$name" ] || die "usage: rm-profile set-pin <name> [pin]"
+  if [ -z "$pin" ]; then
+    printf 'PIN for %s: ' "$name" >&2
+    read -r pin
+  fi
+  [ -n "$pin" ] || die "empty PIN"
+  salt="$(_salt)"
+  hash="$(_hash "${salt}${pin}")"
+  pins="$RMP_PROFILES_DIR/pins.conf"
+  tmp="$pins.tmp.$$"
+  : > "$tmp"
+  if [ -f "$pins" ]; then
+    grep -v "^${name}:" "$pins" >> "$tmp" 2>/dev/null || true
+  fi
+  printf '%s:%s:%s\n' "$name" "$salt" "$hash" >> "$tmp"
+  mv "$tmp" "$pins"
+  chmod 600 "$pins"
+  printf 'set PIN for %s\n' "$name"
+}
+
+main() {
+  [ "$#" -gt 0 ] || die "usage: rm-profile {list|status|switch <name>|create <name>|set-pin <name> [pin]}"
+  action="$1"
+  shift
+  case "$action" in
+    list) cmd_list "$@" ;;
+    status) cmd_status "$@" ;;
+    switch) cmd_switch "$@" ;;
+    create) cmd_create "$@" ;;
+    set-pin) cmd_set_pin "$@" ;;
+    hash) _hash "${1:-}${2:-}" ;;
+    *) die "unknown command: $action" ;;
+  esac
+}
+
+main "$@"
