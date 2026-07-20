@@ -1,0 +1,22 @@
+#!/bin/sh
+# rm-ssh-forced — forced command for a wifi-exposed SSH key.
+#
+# Set as command="/home/root/profiles/rm-ssh-forced" on a key in
+# authorized_keys so that key can ONLY switch profiles, nothing else — even
+# though SSH over wifi is open. The client's requested command arrives in
+# $SSH_ORIGINAL_COMMAND (e.g. "/home/root/profiles/rm-profile switch kid"); we
+# take the last word as the target profile and allow it only if it is on the
+# allowlist.
+set -eu
+
+target=$(printf '%s\n' "${SSH_ORIGINAL_COMMAND:-}" | awk '{print $NF}')
+
+case "$target" in
+  duncan | kid)
+    exec /home/root/profiles/rm-profile switch "$target"
+    ;;
+  *)
+    printf 'denied: this key may only switch profiles (duncan|kid)\n' >&2
+    exit 1
+    ;;
+esac
