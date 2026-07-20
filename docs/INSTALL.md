@@ -1,144 +1,111 @@
 # Install runbook — reMarkable 2
 
-This is the on-device half of the project. The code is built and tested off-device;
-these steps run against your actual tablet over SSH.
+The code is built and tested off-device; these steps run against your actual tablet over
+SSH.
 
 > **reMarkable 2 only.** Not rM1, not Paper Pro.
 >
-> **This is convenience and basic privacy, not security.** Anyone with USB or SSH access
-> can read every profile. Do not rely on it to protect sensitive data.
+> **Convenience and basic privacy, not security.** Anyone with USB/SSH access can read
+> every profile.
 >
 > **Back up first, and copy the backup off the device.** Migration moves your real
-> notebooks. A verified off-device backup is non-negotiable.
+> notebooks. The migrate script backs up too, but verify it and pull a copy to your
+> computer before continuing.
 
-## What you need
+Two models. Check your OS version first (**Settings → General → Help → About**, or
+`cat /etc/os-release`):
 
-- A reMarkable 2 with SSH access. Get the root password from
-  **Settings → General → Help → Copyrights and licenses** (bottom), and the USB IP is
-  usually `10.11.99.1`. Test: `ssh root@10.11.99.1`.
-- This repo checked out on your Mac, with Docker running (for the cross build).
+- **OS newer than ~3.3 → engine + handoff (below).** The only working model on current
+  firmware. This is what's deployed.
+- **OS ≤ 3.3.2.1666 → optional auto-by-PIN pad.** See the appendix.
 
-## Phase 0 — spike (do this before installing)
+## 1. SSH access
 
-These four unknowns must be confirmed on *your* device and OS version. Don't skip them —
-they're the difference between a clean install and a soft-brick or a black screen.
+Get the root password from **Settings → General → Help → Copyrights and licenses**
+(bottom). USB IP is `10.11.99.1`. Install your key so commands run without a password:
 
-1. **Config key names.** SSH in and inspect `~/.config/remarkable/xochitl.conf`. Confirm
-   which key holds the passcode/PIN and which holds the cloud/Connect token:
-   ```
-   cat /home/root/.config/remarkable/xochitl.conf
-   ```
-   You don't need to edit anything by key — the design swaps whole directories — but you
-   do need to know the passcode key to disable the native lock (step 5 below).
+```
+ssh-copy-id -i ~/.ssh/id_ed25519.pub root@10.11.99.1
+ssh root@10.11.99.1 echo ok
+```
 
-2. **Swap works.** Prove the core mechanic before trusting it:
-   ```
-   systemctl stop xochitl
-   cp -a /home/root/.local/share/remarkable/xochitl /home/root/xochitl.bak
-   # ...move it aside, start xochitl, confirm an empty library, then restore...
-   systemctl start xochitl
-   ```
+## 2. Deploy the engine + migrate script
 
-3. **rm2fb.** The rM2 has no kernel framebuffer; a custom UI needs the
-   [`remarkable2-framebuffer`](https://github.com/ddvk/remarkable2-framebuffer) shim.
-   Install its server + client **standalone** (no Toltec). Note the path to
-   `librm2fb_client.so` — it goes in the systemd unit's `LD_PRELOAD`. Then decide the
-   boot model (next section).
+```
+ssh root@10.11.99.1 'mkdir -p /home/root/profiles /home/root/remarkable-profiles'
+scp bin/rm-profile root@10.11.99.1:/home/root/profiles/rm-profile
+scp -r bin scripts root@10.11.99.1:/home/root/remarkable-profiles/
+ssh root@10.11.99.1 'chmod +x /home/root/profiles/rm-profile'
+```
 
-4. **Auto-updates.** Find how to pause OTA updates on your OS version (commonly by
-   pointing the update server to an unreachable host in
-   `/usr/share/remarkable/update.conf`). Updates replace the rootfs and undo the `/etc`
-   parts of this install — pause them, and run `reapply.sh` after any deliberate update.
+## 3. Migrate (creates owner + local-only child)
 
-## Boot model — pick one (Phase 0 decision)
+Dry-run first, then for real. It backs up, moves your data into the owner profile, and
+creates a local-only child profile seeded from a sanitized copy of your config (cloud
+tokens + passcode stripped, so the child can't sync to your account).
 
-The rm2fb server is normally the running xochitl process, which forces a choice about
-*when* the pad draws. Both are documented in `systemd/rm-profile-pad.service`.
+```
+ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate --dry-run'
+ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate duncan kid'
+```
 
-- **Model A — overlay (safer default).** xochitl starts normally; the pad runs *after* it
-  as a standard rm2fb client and draws a fullscreen overlay. Proven path. Downside: a
-  brief flash of xochitl content before the overlay paints.
-- **Model B — pre-xochitl (flash-free).** A standalone rm2fb server starts first, the pad
-  draws, then xochitl starts. No flash, but depends on a standalone server working before
-  xochitl. Requires `systemctl disable xochitl` so only the pad starts it.
+**Copy the backup off-device before confirming the prompt:**
+`scp -r root@10.11.99.1:/home/root/rmprofile-backup ./`
 
-Start with Model A. Move to Model B only if the content flash bothers you and you've
-confirmed a standalone rm2fb server works.
+The tablet comes back on the owner profile, unchanged (your PIN, notebooks, cloud sync).
 
-## Build the pad
+## 4. Verify
 
-The rM2 is ARMv7. Cross-compile with the same native-arm64 Docker path used in CI-less
-local builds (avoids the `cross` bug on Apple Silicon):
+```
+ssh root@10.11.99.1 '/home/root/profiles/rm-profile list'     # * owner  /  child
+ssh root@10.11.99.1 '/home/root/profiles/rm-profile switch kid'      # child: empty local library
+ssh root@10.11.99.1 '/home/root/profiles/rm-profile switch duncan'   # back to your library
+```
+
+## 5. Handoff switch trigger
+
+Find the tablet's wifi IP: `ssh root@10.11.99.1 'ip -4 addr show wlan0'`. Reserve the DHCP
+lease or add a `.lan` record so it's stable.
+
+**From a Mac:** `RM_HOST=<wifi-ip> scripts/rm-switch kid` (and `… duncan`).
+
+**iPhone Shortcut (handoff-friendly):**
+1. Shortcuts → **+** → **Run Script Over SSH**. Host = wifi IP, Port 22, User `root`.
+2. Auth **SSH Key** → **Share Public Key** → add it to the tablet:
+   `printf '%s\n' '<paste key>' | ssh root@10.11.99.1 'umask 077; mkdir -p /home/root/.ssh; cat >> /home/root/.ssh/authorized_keys; chmod 600 /home/root/.ssh/authorized_keys'`
+3. Script: `/home/root/profiles/rm-profile switch kid`. Name it. Duplicate for `duncan`.
+4. Add each to the Home Screen for one-tap.
+
+Caveats: the tablet must be **awake** (wifi drops in sleep), and switching takes ~3-5s
+with a screen flash while xochitl restarts.
+
+## Setting the child's PIN
+
+The child profile ships with no PIN. Switch to it, then set one on-device via
+**Settings → Security** if you want the child's side locked too. The owner PIN is unchanged.
+
+## Recovery
+
+Everything is under `/home/root`. To undo: `rm-profile switch duncan`, stop xochitl, and
+restore `rmprofile-backup/` over `~/.local/share/remarkable` and `~/.config/remarkable`.
+
+---
+
+## Appendix — auto-by-PIN pad (OS ≤ 3.3 only)
+
+On OS ≤ 3.3.2.1666, the custom PIN pad can draw via `rm2fb`, giving true auto-by-PIN
+(type your PIN at boot, land in your profile). On newer OS it does not work: `rm2fb` has no
+offsets past 3.3.2.1666 and the rM2's packed framebuffer can't be driven directly.
+
+If you're on a supported OS: install
+[`remarkable2-framebuffer`](https://github.com/ddvk/remarkable2-framebuffer) (note the
+`librm2fb_client.so` path), cross-build the pad (see below), then run
+`scripts/rm-profile-setup` and pick a boot model per the comments in
+`systemd/rm-profile-pad.service`. Disable the native lock in both profile configs so the
+pad is the sole gate.
+
+Cross-build the pad (native arm64 Docker avoids the `cross` bug on Apple Silicon):
 
 ```
 docker run --rm -v "$PWD/pad":/work -w /work rust:bookworm bash -c 'set -e; apt-get update -qq; apt-get install -y -qq gcc-arm-linux-gnueabihf >/dev/null 2>&1; rustup target add armv7-unknown-linux-gnueabihf; export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc; cargo build --release --target armv7-unknown-linux-gnueabihf -p rm-profile-pad'
 ```
-
-The binary lands at `pad/target/armv7-unknown-linux-gnueabihf/release/rm-profile-pad`.
-
-## Copy the repo + binary to the device
-
-```
-scp -r bin systemd scripts docs root@10.11.99.1:/home/root/remarkable-profiles/
-scp pad/target/armv7-unknown-linux-gnueabihf/release/rm-profile-pad root@10.11.99.1:/home/root/remarkable-profiles/
-```
-
-## Run setup
-
-On the device:
-
-```
-cd /home/root/remarkable-profiles
-sh scripts/rm-profile-setup --dry-run     # read every action first
-sh scripts/rm-profile-setup               # then for real; it will prompt for PINs
-```
-
-It backs up, migrates your data into the `duncan` profile, creates the local-only `kid`
-profile, installs the engine + pad + gate, and sets both PINs.
-
-## Disable the native lock (avoid a double prompt)
-
-Since the pad is the gate, turn off xochitl's own passcode in **both** profiles so users
-aren't asked twice. Using the passcode key you found in Phase 0, clear it in each
-profile's `config/xochitl.conf` (`profiles/duncan/config/…` and `profiles/kid/config/…`).
-If you'd rather keep the native lock as a privacy backstop, expect a second prompt.
-
-## First boot
-
-```
-systemctl reboot
-```
-
-Expect the PIN pad on boot. Type the owner PIN → owner notebooks. Power-cycle, type the
-child PIN → child's empty local library. Verify:
-
-```
-/home/root/profiles/rm-profile status
-/home/root/profiles/rm-profile list
-```
-
-## Day-to-day switching (Phase 1)
-
-Switching users is a deliberate act: power the tablet off and on, then type the other
-person's PIN. (Within one person's session, sleep/wake stays in their profile.) Seamless
-switch-on-every-wake is Phase 2 and not part of this install.
-
-## After an OS update
-
-```
-cd /home/root/remarkable-profiles
-sh scripts/reapply.sh
-systemctl reboot
-```
-
-## Troubleshooting
-
-- **Pad shows nothing / black screen:** rm2fb isn't running or the `LD_PRELOAD` path in
-  the unit is wrong. Recheck Phase 0 step 3 and the boot model.
-- **`GLIBC_2.xx not found` when the pad runs:** the build toolchain's glibc is newer than
-  your OS's. Rebuild in an older base image (`rust:bullseye`), or switch the target to
-  `armv7-unknown-linux-musleabihf` for a static binary.
-- **Asked for a PIN twice:** native lock still enabled — see "Disable the native lock".
-- **Wrong profile after switch:** check `rm-profile status` and that `profiles/active`
-  points where you expect.
-- **Recover:** everything is under `/home/root`; restore `rmprofile-backup/` to undo.

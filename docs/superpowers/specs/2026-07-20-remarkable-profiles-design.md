@@ -211,3 +211,23 @@ reMarkable OTA updates replace the rootfs (A/B partitions), which can wipe chang
 - Exact `xochitl.conf` key names for PIN and cloud token (resolved in Phase 0).
 - Confirm rM2 OS version and current SSH access method before install.
 - Method to pause auto-updates on the owner's current OS version (resolved in Phase 0).
+
+## Outcome addendum (2026-07-20)
+
+Installed on-device the same day. Phase 0 found the target rM2 running **OS 3.27.3.0**
+(Codex Linux, scarthgap). Findings that changed the plan:
+
+- **The PIN pad is not viable on this OS.** rM2 draws through `rm2fb`, which patches
+  xochitl at per-version memory offsets; its table ends at **3.3.2.1666**. `/dev/fb0`
+  exists (`mxs-lcdif`, 32bpp, packed 260×23936) but is xochitl-owned and can't be driven
+  directly without documented format/refresh handling. So auto-by-PIN is blocked on
+  OS > 3.3 — it would require reverse-engineering the framebuffer for a 2026 build.
+- **Shipped the engine + handoff model instead.** Two isolated profiles (`duncan`
+  cloud-synced, `kid` local-only), switched via `rm-profile switch` triggered from an
+  iPhone shortcut / SSH. Each unlocks with its own native PIN. Confirmed on-device:
+  kid shows an empty library and has zero cloud tokens; owner profile unchanged.
+- The child config is seeded from a sanitized copy of the owner config (cloud tokens +
+  passcode stripped) so it is onboarded and local-only without forced account sign-in.
+
+The pad code (`pad/`, `systemd/`, `scripts/rm-profile-setup`) is retained for OS ≤ 3.3 and
+as a future path. The shipped path is `scripts/rm-profile-migrate` + `scripts/rm-switch`.
