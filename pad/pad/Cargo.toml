@@ -1,0 +1,15 @@
+[package]
+name = "rm-profile-pad"
+description = "Fullscreen PIN pad that gates xochitl and switches profiles on reMarkable 2"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rm-profile-pad"
+path = "src/main.rs"
+
+[dependencies]
+rmprofile-core = { path = "../core" }
+libremarkable = "0.7"

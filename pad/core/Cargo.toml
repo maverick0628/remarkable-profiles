@@ -1,0 +1,10 @@
+[package]
+name = "rmprofile-core"
+description = "Pure PIN hashing/parsing/matching logic for reMarkable Profiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sha2 = "0.10"
