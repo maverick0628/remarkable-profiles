@@ -1,0 +1,4 @@
+# cross-rs config for building the PIN pad for reMarkable 2.
+# The rM2 runs an ARMv7 hard-float userland.
+[build]
+default-target = "armv7-unknown-linux-gnueabihf"

@@ -1,0 +1,44 @@
+# reMarkable Profiles — PIN gate service.
+#
+# Installed to /etc/systemd/system/ by rm-profile-setup and re-installed by
+# reapply.sh after any OS update (OTA replaces the rootfs, wiping /etc).
+#
+# IMPORTANT on-device caveat (validate in Phase 0, see docs/INSTALL.md):
+# the reMarkable 2 has no kernel framebuffer. libremarkable draws through the
+# `rm2fb` shim, whose server is normally the running xochitl process. That makes
+# two integration models possible; pick one on-device:
+#
+#   A. Overlay model (safer default): let xochitl start, run the pad After it as
+#      a normal rm2fb client drawing a fullscreen overlay. Proven rm2fb path;
+#      brief content flash before the overlay paints.
+#      -> After=xochitl.service ; do NOT disable xochitl autostart.
+#
+#   B. Pre-xochitl model (flash-free): run a standalone rm2fb server first, draw
+#      the pad, then start xochitl. No content flash, but depends on a
+#      standalone rm2fb server working before xochitl.
+#      -> Before=xochitl.service ; `systemctl disable xochitl` so only the pad
+#         starts it. Set LD_PRELOAD to the rm2fb client below.
+#
+# The pad binary itself works in both models: `systemctl start xochitl` is a
+# no-op if xochitl is already running, and a switch restarts it either way.
+#
+# The stanza below is written for model A (overlay). Comments mark the model-B
+# changes. This is convenience + basic privacy, not a security boundary.
+
+[Unit]
+Description=reMarkable Profiles PIN gate
+After=xochitl.service
+# Model B instead: Before=xochitl.service ; After=rm2fb.service ; DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# rm2fb client preload — path depends on how you installed the shim (Phase 0).
+Environment=LD_PRELOAD=/home/root/rm2fb/librm2fb_client.so
+ExecStart=/home/root/profiles/rm-profile-pad
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
