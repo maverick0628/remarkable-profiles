@@ -1,0 +1,20 @@
+#!/bin/sh
+# rm-switch — switch the reMarkable's active profile from your Mac or phone.
+#
+# Runs the on-device engine over SSH. This is the "handoff" trigger for the
+# engine-only model: run it when you hand the tablet over, then each person
+# unlocks with their own native PIN.
+#
+# Usage:   rm-switch <profile> [host]
+# Example: rm-switch kid            # uses default host
+#          rm-switch duncan 192.168.86.62
+#          RM_HOST=remarkable.lan rm-switch kid
+#
+# Default host is the USB address; set RM_HOST (or pass a host) to the tablet's
+# wifi IP / hostname for over-the-network switching.
+set -eu
+
+PROFILE="${1:?usage: rm-switch <profile> [host]}"
+HOST="${2:-${RM_HOST:-10.11.99.1}}"
+
+exec ssh "root@${HOST}" "/home/root/profiles/rm-profile switch ${PROFILE}"

@@ -1,0 +1,105 @@
+#!/bin/sh
+# rm-profile-migrate — engine-only install (no PIN pad).
+#
+# The shipped model for reMarkable OS newer than ~3.3, where rm2fb (and thus the
+# custom PIN pad) does not work. Migrates current data into an owner profile and
+# creates a local-only child profile seeded from a sanitized copy of the owner
+# config (cloud tokens + passcode stripped, so the child cannot sync to the
+# owner's account). After this, switch with `rm-profile switch <name>` — e.g.
+# from an SSH one-liner or a phone shortcut (see scripts/rm-switch).
+#
+# DESTRUCTIVE. Runs once, on-device, as root. Use --dry-run first. Back up first
+# (this script also backs up). Convenience + basic privacy, not security.
+#
+# Usage: rm-profile-migrate [--dry-run] [owner-name] [child-name]
+# Defaults: owner=duncan child=kid
+set -eu
+
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ]; then
+  DRY_RUN=1
+  shift
+fi
+OWNER="${1:-duncan}"
+CHILD="${2:-kid}"
+
+SHARE_DIR="${RMP_SHARE_DIR:-/home/root/.local/share/remarkable}"
+CONFIG_DIR="${RMP_CONFIG_DIR:-/home/root/.config/remarkable}"
+PROFILES_DIR="${RMP_PROFILES_DIR:-/home/root/profiles}"
+SRC="${RMP_SRC:-$(unset CDPATH; cd -- "$(dirname -- "$0")/.." && pwd)}"
+BACKUP_DIR="${RMP_BACKUP_DIR:-/home/root/rmprofile-backup}"
+
+say() { printf '==> %s\n' "$1"; }
+die() { printf 'migrate: %s\n' "$1" >&2; exit 1; }
+
+run() {
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'DRY-RUN: %s\n' "$*"
+  else
+    "$@"
+  fi
+}
+
+confirm() {
+  [ "$DRY_RUN" = "1" ] && return 0
+  printf '%s [y/N] ' "$1" >&2
+  read -r reply
+  case "$reply" in
+    y | Y | yes | YES) return 0 ;;
+    *) die "aborted by user" ;;
+  esac
+}
+
+# Strip cloud tokens + passcode from a profile config, in place. Kept as a
+# function so --dry-run can describe it without editing anything.
+sanitize_child_config() {
+  conf="$PROFILES_DIR/$CHILD/config/xochitl.conf"
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'DRY-RUN: strip devicetoken/usertoken/UserToken/Passcode from %s\n' "$conf"
+    return 0
+  fi
+  grep -vE '^(devicetoken|usertoken|UserToken|Passcode)=' "$conf" > "$conf.tmp"
+  mv "$conf.tmp" "$conf"
+}
+
+if [ "$DRY_RUN" = "0" ]; then
+  [ "$(id -u)" = "0" ] || die "must run as root"
+  [ -d "$SHARE_DIR/xochitl" ] || die "no reMarkable data at $SHARE_DIR/xochitl — is this an rM2?"
+  [ -L "$SHARE_DIR/xochitl" ] && die "$SHARE_DIR/xochitl is already a symlink — already migrated?"
+  [ -e "$PROFILES_DIR/$OWNER" ] && die "profile '$OWNER' already exists"
+  [ -x "$SRC/bin/rm-profile" ] || die "engine not found at $SRC/bin/rm-profile"
+fi
+
+say "engine-only migrate (dry-run=$DRY_RUN): owner=$OWNER child=$CHILD"
+
+say "1/6 backup to $BACKUP_DIR (copy it OFF-device after)"
+run mkdir -p "$BACKUP_DIR"
+run cp -a "$SHARE_DIR" "$BACKUP_DIR/share-remarkable"
+run cp -a "$CONFIG_DIR" "$BACKUP_DIR/config-remarkable"
+confirm "Backup done. Have you copied it off-device?"
+
+say "2/6 stop xochitl"
+run systemctl stop xochitl
+
+say "3/6 migrate current data into '$OWNER'"
+run mkdir -p "$PROFILES_DIR/$OWNER"
+run mv "$SHARE_DIR/xochitl" "$PROFILES_DIR/$OWNER/xochitl"
+run mv "$CONFIG_DIR" "$PROFILES_DIR/$OWNER/config"
+
+say "4/6 create live symlinks (active -> $OWNER)"
+run ln -sfn "$OWNER" "$PROFILES_DIR/active"
+run ln -sfn "$PROFILES_DIR/active/xochitl" "$SHARE_DIR/xochitl"
+run ln -sfn "$PROFILES_DIR/active/config" "$CONFIG_DIR"
+
+say "5/6 create local-only child '$CHILD' (sanitized config, empty library)"
+run mkdir -p "$PROFILES_DIR/$CHILD/xochitl"
+run cp -a "$PROFILES_DIR/$OWNER/config" "$PROFILES_DIR/$CHILD/config"
+sanitize_child_config
+
+say "6/6 install engine + start xochitl"
+run cp "$SRC/bin/rm-profile" "$PROFILES_DIR/rm-profile"
+run chmod +x "$PROFILES_DIR/rm-profile"
+run systemctl start xochitl
+
+say "Done. Switch with: $PROFILES_DIR/rm-profile switch $CHILD"
+say "The child has no PIN yet — set one on-device via Settings if desired."
