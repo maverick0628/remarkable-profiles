@@ -83,3 +83,7 @@ shellcheck -s sh bin/rm-profile scripts/*      # lint
 ## Supported
 
 reMarkable 2 only. Not reMarkable 1, not the Paper Pro family.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
