@@ -7,7 +7,7 @@
 #
 # Usage:   rm-switch <profile> [host]
 # Example: rm-switch kid            # uses default host
-#          rm-switch duncan 192.168.86.62
+#          rm-switch duncan 192.168.1.50
 #          RM_HOST=remarkable.lan rm-switch kid
 #
 # Default host is the USB address; set RM_HOST (or pass a host) to the tablet's
