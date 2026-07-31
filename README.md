@@ -52,7 +52,7 @@ Back up first (the script also backs up; copy it off-device).
 
 ```
 scripts/rm-switch kid                 # switch, over USB (default host)
-RM_HOST=192.168.86.62 scripts/rm-switch duncan   # over wifi
+RM_HOST=192.168.1.50 scripts/rm-switch duncan   # over wifi
 ```
 
 Or an iOS Shortcut running `/home/root/profiles/rm-profile switch <name>` over SSH — see
