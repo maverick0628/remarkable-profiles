@@ -1,10 +1,20 @@
-# reMarkable Profiles
+# reMarkable Profiles — multi-user support for a shared reMarkable 2
 
-Distinct, switchable user profiles on a single **reMarkable 2** — separate notebooks,
-separate PIN, separate cloud account. One profile keeps reMarkable cloud sync; another is
-local-only. Ideal for sharing a tablet with a child.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Device](https://img.shields.io/badge/device-reMarkable%202-000000)](https://remarkable.com/)
+[![Shell](https://img.shields.io/badge/POSIX-sh-4EAA25)](bin/rm-profile)
+[![Tests](https://img.shields.io/badge/tests-bats%20%2B%20cargo-brightgreen)](tests/)
 
-No Toltec, no launcher. A small POSIX-shell switch engine installed over SSH.
+**The reMarkable 2 has no multi-user support.** One device, one set of notebooks, one
+cloud account. Share it with a partner or a child and you share everything.
+
+This adds switchable user profiles — **separate notebooks, separate PIN, separate cloud
+account** on a single tablet. One profile can keep reMarkable cloud sync while another
+stays local-only. Switching takes about three seconds.
+
+**No Toltec, no launcher, no custom firmware.** A small POSIX-shell switch engine
+installed over SSH, which means nothing to re-flash and nothing to maintain against an
+alternative package ecosystem.
 
 > **This is convenience and basic privacy, not security.** Anyone with USB or SSH access
 > can read every profile — as on any rooted reMarkable. Don't rely on it to protect data.
@@ -83,6 +93,27 @@ shellcheck -s sh bin/rm-profile scripts/*      # lint
 ## Supported
 
 reMarkable 2 only. Not reMarkable 1, not the Paper Pro family.
+
+Tested on reMarkable OS 3.27.3.0. The switch engine touches only `xochitl/` and
+`config/` plus a symlink, so it should survive OS updates — but an update can reset
+SSH access, and you will need to re-run the install if the rootfs is replaced.
+
+## FAQ
+
+**Can two people share one reMarkable?** Not natively. That is what this fixes.
+
+**Does each profile get its own cloud account?** Yes — each profile carries its own
+`config/`, which holds the cloud token. One can sync, another can stay offline.
+
+**Does it survive an OS update?** The profile data does. The install may need re-running
+if the update replaces the rootfs or resets SSH.
+
+**Is my data protected from the other user?** No. See the warning at the top — anyone
+with USB or SSH access reads everything. This separates workspaces, it does not secure
+them.
+
+**Does this void the warranty or brick anything?** It needs SSH access, which reMarkable
+provides officially. It writes no firmware and patches no binaries in the shipped model.
 
 ## License
 
