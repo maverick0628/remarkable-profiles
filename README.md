@@ -50,11 +50,17 @@ framebuffer access is solved for newer builds.
 See [`docs/INSTALL.md`](docs/INSTALL.md). In short, from a Mac with the tablet on SSH:
 
 ```
+ssh root@10.11.99.1 'mkdir -p /home/root/profiles /home/root/remarkable-profiles'
 scp bin/rm-profile root@10.11.99.1:/home/root/profiles/rm-profile   # deploy engine
 scp -r bin scripts root@10.11.99.1:/home/root/remarkable-profiles/   # + migrate script
-ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate --dry-run'
-ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate'
+ssh root@10.11.99.1 'chmod +x /home/root/profiles/rm-profile'
+ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate --dry-run <owner> <child>'
+ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate <owner> <child>'
 ```
+
+The migrate script moves your current data into the owner profile and creates a
+local-only child profile with cloud tokens and passcode stripped. Profile names default
+to `duncan` and `kid` if you leave them off.
 
 Back up first (the script also backs up; copy it off-device).
 
@@ -68,10 +74,16 @@ RM_HOST=192.168.1.50 scripts/rm-switch duncan   # over wifi
 Or an iOS Shortcut running `/home/root/profiles/rm-profile switch <name>` over SSH — see
 `docs/INSTALL.md`.
 
+Switching over wifi needs SSH over wifi turned on first. Newer reMarkable OS only
+listens for SSH on USB, so `docs/INSTALL.md` covers enabling it in every profile. It also
+covers `bin/rm-ssh-forced`, a forced command that limits the wifi-exposed key to switching
+profiles. Edit its allowlist to match your profile names.
+
 ## Layout
 
 ```
 bin/rm-profile              switch engine (list/status/switch/create/set-pin)
+bin/rm-ssh-forced           forced command that limits a wifi SSH key to switching
 scripts/rm-profile-migrate  engine-only install (shipped model)
 scripts/rm-switch           Mac/phone-side switch trigger
 scripts/rm-profile-setup    full install incl. PIN pad (OS <= 3.3)
