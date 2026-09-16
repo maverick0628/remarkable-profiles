@@ -120,13 +120,13 @@ mod tests {
 
     #[test]
     fn parse_skips_comments_and_blanks() {
-        let contents = "# comment\n\nduncan:aaaa:hhhh\nkid:bbbb:gggg\n";
+        let contents = "# comment\n\nuser1:aaaa:hhhh\nuser2:bbbb:gggg\n";
         let entries = parse_pins(contents);
         assert_eq!(entries.len(), 2);
         assert_eq!(
             entries[0],
             PinEntry {
-                name: "duncan".into(),
+                name: "user1".into(),
                 salt: "aaaa".into(),
                 hash: "hhhh".into()
             }
@@ -144,18 +144,18 @@ mod tests {
     fn match_returns_name_for_correct_pin() {
         let salt = "cafebabe";
         let entries = vec![PinEntry {
-            name: "kid".into(),
+            name: "user2".into(),
             salt: salt.into(),
             hash: hash_pin(salt, "4321"),
         }];
-        assert_eq!(match_pin(&entries, "4321"), Some("kid"));
+        assert_eq!(match_pin(&entries, "4321"), Some("user2"));
     }
 
     #[test]
     fn match_returns_none_for_wrong_pin() {
         let salt = "cafebabe";
         let entries = vec![PinEntry {
-            name: "kid".into(),
+            name: "user2".into(),
             salt: salt.into(),
             hash: hash_pin(salt, "4321"),
         }];
@@ -165,35 +165,35 @@ mod tests {
     #[test]
     fn match_picks_correct_profile_among_many() {
         let entries = vec![
-            PinEntry { name: "duncan".into(), salt: "s1".into(), hash: hash_pin("s1", "1111") },
-            PinEntry { name: "kid".into(), salt: "s2".into(), hash: hash_pin("s2", "2222") },
+            PinEntry { name: "user1".into(), salt: "s1".into(), hash: hash_pin("s1", "1111") },
+            PinEntry { name: "user2".into(), salt: "s2".into(), hash: hash_pin("s2", "2222") },
         ];
-        assert_eq!(match_pin(&entries, "2222"), Some("kid"));
-        assert_eq!(match_pin(&entries, "1111"), Some("duncan"));
+        assert_eq!(match_pin(&entries, "2222"), Some("user2"));
+        assert_eq!(match_pin(&entries, "1111"), Some("user1"));
     }
 
     fn two_profiles() -> Vec<PinEntry> {
         vec![
-            PinEntry { name: "duncan".into(), salt: "s1".into(), hash: hash_pin("s1", "1111") },
-            PinEntry { name: "kid".into(), salt: "s2".into(), hash: hash_pin("s2", "2222") },
+            PinEntry { name: "user1".into(), salt: "s1".into(), hash: hash_pin("s1", "1111") },
+            PinEntry { name: "user2".into(), salt: "s2".into(), hash: hash_pin("s2", "2222") },
         ]
     }
 
     #[test]
     fn decide_rejects_unknown_pin() {
-        assert_eq!(decide(&two_profiles(), "duncan", "9999"), Action::Reject);
+        assert_eq!(decide(&two_profiles(), "user1", "9999"), Action::Reject);
     }
 
     #[test]
     fn decide_starts_current_when_active_pin_entered() {
-        assert_eq!(decide(&two_profiles(), "duncan", "1111"), Action::StartCurrent);
+        assert_eq!(decide(&two_profiles(), "user1", "1111"), Action::StartCurrent);
     }
 
     #[test]
     fn decide_switches_when_other_pin_entered() {
         assert_eq!(
-            decide(&two_profiles(), "duncan", "2222"),
-            Action::SwitchTo("kid".into())
+            decide(&two_profiles(), "user1", "2222"),
+            Action::SwitchTo("user2".into())
         );
     }
 }

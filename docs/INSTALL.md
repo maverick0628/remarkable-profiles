@@ -38,28 +38,32 @@ scp -r bin scripts root@10.11.99.1:/home/root/remarkable-profiles/
 ssh root@10.11.99.1 'chmod +x /home/root/profiles/rm-profile'
 ```
 
-## 3. Migrate (creates owner + local-only child)
+## 3. Migrate (creates User 1 + local-only User 2)
 
-Dry-run first, then for real. It backs up, moves your data into the owner profile, and
-creates a local-only child profile seeded from a sanitized copy of your config (cloud
-tokens + passcode stripped, so the child can't sync to your account).
+Dry-run first, then for real. It backs up and moves your data into the User 1 profile.
+Then it creates a local-only User 2 profile seeded from a sanitized copy of your config.
+Cloud tokens and passcode are stripped, so User 2 can't sync to your account.
 
 ```
 ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate --dry-run'
-ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate duncan kid'
+ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate user1 user2'
 ```
+
+Both names are optional and default to `user1` and `user2`. If you pick your own, use
+lowercase letters, digits, `_` and `-`. Start with a letter or digit and keep it to 32
+characters. The wifi key in step 5a only switches to names like that.
 
 **Copy the backup off-device before confirming the prompt:**
 `scp -r root@10.11.99.1:/home/root/rmprofile-backup ./`
 
-The tablet comes back on the owner profile, unchanged (your PIN, notebooks, cloud sync).
+The tablet comes back on the User 1 profile, unchanged (your PIN, notebooks, cloud sync).
 
 ## 4. Verify
 
 ```
-ssh root@10.11.99.1 '/home/root/profiles/rm-profile list'     # * owner  /  child
-ssh root@10.11.99.1 '/home/root/profiles/rm-profile switch kid'      # child: empty local library
-ssh root@10.11.99.1 '/home/root/profiles/rm-profile switch duncan'   # back to your library
+ssh root@10.11.99.1 '/home/root/profiles/rm-profile list'           # * user1  /  user2
+ssh root@10.11.99.1 '/home/root/profiles/rm-profile switch user2'   # User 2: empty local library
+ssh root@10.11.99.1 '/home/root/profiles/rm-profile switch user1'   # back to your library
 ```
 
 ## 5. Handoff switch trigger
@@ -76,7 +80,7 @@ reMarkable's own wifi-SSH toggle — a marker file gated by
 *active* profile, create the marker in **every** profile so it stays on across switches:
 
 ```
-ssh root@10.11.99.1 'touch /home/root/profiles/duncan/config/rm_enable_ssh_wifi_marker /home/root/profiles/kid/config/rm_enable_ssh_wifi_marker; systemctl restart dropbear-wlan.socket'
+ssh root@10.11.99.1 'touch /home/root/profiles/user1/config/rm_enable_ssh_wifi_marker /home/root/profiles/user2/config/rm_enable_ssh_wifi_marker; systemctl restart dropbear-wlan.socket'
 ```
 
 Confirm: `systemctl show dropbear-wlan.socket -p ConditionResult` → `yes`. This lives under
@@ -86,30 +90,64 @@ Confirm: `systemctl show dropbear-wlan.socket -p ConditionResult` → `yes`. Thi
 profiles: deploy `bin/rm-ssh-forced`, then prefix that key's line in
 `/home/root/.ssh/authorized_keys` with
 `command="/home/root/profiles/rm-ssh-forced",no-port-forwarding,no-agent-forwarding,no-pty`.
-The client's requested command is ignored except for the trailing profile name, which must
-be on the wrapper's allowlist. (Password auth over wifi remains available; disable it
-separately if you want.)
+The wrapper only accepts the exact command `/home/root/profiles/rm-profile switch <name>`,
+where `<name>` is an existing profile with a safe name. It denies everything else, including
+extra arguments. There is no list of names to keep in sync. (Password auth over wifi
+remains available; disable it separately if you want.)
 
-**From a Mac:** `RM_HOST=<wifi-ip> scripts/rm-switch kid` (and `… duncan`).
+**From a Mac:** `RM_HOST=<wifi-ip> scripts/rm-switch user2` (and `… user1`).
 
 **iPhone Shortcut (handoff-friendly):**
 1. Shortcuts → **+** → **Run Script Over SSH**. Host = wifi IP, Port 22, User `root`.
 2. Auth **SSH Key** → **Share Public Key** → add it to the tablet:
    `printf '%s\n' '<paste key>' | ssh root@10.11.99.1 'umask 077; mkdir -p /home/root/.ssh; cat >> /home/root/.ssh/authorized_keys; chmod 600 /home/root/.ssh/authorized_keys'`
-3. Script: `/home/root/profiles/rm-profile switch kid`. Name it. Duplicate for `duncan`.
+3. Script: `/home/root/profiles/rm-profile switch user2`. Name it. Duplicate for `user1`.
+   Keep the script to that one line. The forced command denies anything extra.
 4. Add each to the Home Screen for one-tap.
 
 Caveats: the tablet must be **awake** (wifi drops in sleep), and switching takes ~3-5s
 with a screen flash while xochitl restarts.
 
-## Setting the child's PIN
+## Setting User 2's PIN
 
-The child profile ships with no PIN. Switch to it, then set one on-device via
-**Settings → Security** if you want the child's side locked too. The owner PIN is unchanged.
+The User 2 profile ships with no PIN. Switch to it, then set one on-device via
+**Settings → Security** if you want that side locked too. User 1's PIN is unchanged.
+
+## Existing installs
+
+Installs made with older default profile names keep working under those names. The
+profile directories stay as they are and the new forced command accepts any existing
+profile with a safe name. Your shortcuts keep working as long as they send the one-line
+`rm-profile switch <name>` script from step 5. To upgrade, copy the new engine and forced
+command over:
+
+```
+scp bin/rm-profile bin/rm-ssh-forced root@10.11.99.1:/home/root/profiles/
+```
+
+Renaming to `user1` and `user2` is optional. If you want the new names, replace `<old-1>`
+and `<old-2>` with your current profile names and run these over USB. xochitl stops first
+because its live paths run through `active`. The tablet comes back on User 1.
+
+```
+ssh root@10.11.99.1 'systemctl stop xochitl'
+ssh root@10.11.99.1 'cd /home/root/profiles && mv <old-1> user1 && mv <old-2> user2'
+ssh root@10.11.99.1 'ln -sfn user1 /home/root/profiles/active && systemctl start xochitl'
+```
+
+If you use the PIN pad, rename its records in `pins.conf` too:
+
+```
+ssh root@10.11.99.1 "sed -i -e 's/^<old-1>:/user1:/' -e 's/^<old-2>:/user2:/' /home/root/profiles/pins.conf"
+```
+
+Then update anything that switches by name. Change each iPhone Shortcut's script to
+`/home/root/profiles/rm-profile switch user1` or `/home/root/profiles/rm-profile switch user2`,
+and use the new names with `scripts/rm-switch`.
 
 ## Recovery
 
-Everything is under `/home/root`. To undo: `rm-profile switch duncan`, stop xochitl, and
+Everything is under `/home/root`. To undo: `rm-profile switch user1`, stop xochitl, and
 restore `rmprofile-backup/` over `~/.local/share/remarkable` and `~/.config/remarkable`.
 
 ---

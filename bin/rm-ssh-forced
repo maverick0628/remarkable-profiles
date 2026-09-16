@@ -2,21 +2,53 @@
 # rm-ssh-forced — forced command for a wifi-exposed SSH key.
 #
 # Set as command="/home/root/profiles/rm-ssh-forced" on a key in
-# authorized_keys so that key can ONLY switch profiles, nothing else — even
+# authorized_keys so that key can ONLY switch profiles, nothing else, even
 # though SSH over wifi is open. The client's requested command arrives in
-# $SSH_ORIGINAL_COMMAND (e.g. "/home/root/profiles/rm-profile switch kid"); we
-# take the last word as the target profile and allow it only if it is on the
-# allowlist.
+# $SSH_ORIGINAL_COMMAND and must be exactly three words:
+#
+#   /home/root/profiles/rm-profile switch <name>
+#
+# The first word may also be a bare `rm-profile`. It is checked but never run.
+# This script always runs the engine that sits in the profiles dir.
+#
+# <name> must be a safe profile name and an existing profile directory. A safe
+# name uses only lowercase letters, digits, `_` and `-`. It starts with a letter
+# or digit and is at most 32 characters. There is no list of names to edit.
+# Anything else is denied.
+#
+# The profiles dir is read from the environment so the test suite can run this
+# against a scratch directory, same as rm-profile.
 set -eu
+set -f
+unset IFS
+LC_ALL=C
 
-target=$(printf '%s\n' "${SSH_ORIGINAL_COMMAND:-}" | awk '{print $NF}')
+PROFILES_DIR="${RMP_PROFILES_DIR:-/home/root/profiles}"
 
-case "$target" in
-  duncan | kid)
-    exec /home/root/profiles/rm-profile switch "$target"
-    ;;
-  *)
-    printf 'denied: this key may only switch profiles (duncan|kid)\n' >&2
-    exit 1
-    ;;
+deny() {
+  printf 'denied: this key may only run rm-profile switch <profile>\n' >&2
+  exit 1
+}
+
+# Split the request on whitespace. Globbing is off, so nothing in it expands.
+# shellcheck disable=SC2086
+set -- ${SSH_ORIGINAL_COMMAND:-}
+
+[ "$#" -eq 3 ] || deny
+
+case "$1" in
+  rm-profile | */rm-profile) ;;
+  *) deny ;;
 esac
+
+[ "$2" = "switch" ] || deny
+
+name="$3"
+case "$name" in
+  [!a-z0-9]* | *[!a-z0-9_-]*) deny ;;
+esac
+[ "${#name}" -le 32 ] || deny
+[ "$name" != "active" ] || deny
+{ [ -d "$PROFILES_DIR/$name" ] && [ ! -L "$PROFILES_DIR/$name" ]; } || deny
+
+exec "$PROFILES_DIR/rm-profile" switch "$name"

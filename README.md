@@ -54,21 +54,23 @@ ssh root@10.11.99.1 'mkdir -p /home/root/profiles /home/root/remarkable-profiles
 scp bin/rm-profile root@10.11.99.1:/home/root/profiles/rm-profile   # deploy engine
 scp -r bin scripts root@10.11.99.1:/home/root/remarkable-profiles/   # + migrate script
 ssh root@10.11.99.1 'chmod +x /home/root/profiles/rm-profile'
-ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate --dry-run <owner> <child>'
-ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate <owner> <child>'
+ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate --dry-run user1 user2'
+ssh root@10.11.99.1 'sh /home/root/remarkable-profiles/scripts/rm-profile-migrate user1 user2'
 ```
 
-The migrate script moves your current data into the owner profile and creates a
-local-only child profile with cloud tokens and passcode stripped. Profile names default
-to `duncan` and `kid` if you leave them off.
+The migrate script moves your current data into the first profile and creates a
+local-only second profile with cloud tokens and passcode stripped. User 1 keeps the
+cloud-synced library and User 2 gets an empty local one. Profile names default to `user1`
+and `user2` if you leave them off. If you pick your own, use lowercase letters, digits,
+`_` and `-`.
 
 Back up first (the script also backs up; copy it off-device).
 
 ## Switching
 
 ```
-scripts/rm-switch kid                 # switch, over USB (default host)
-RM_HOST=192.168.1.50 scripts/rm-switch duncan   # over wifi
+scripts/rm-switch user2                 # switch, over USB (default host)
+RM_HOST=192.168.1.50 scripts/rm-switch user1   # over wifi
 ```
 
 Or an iOS Shortcut running `/home/root/profiles/rm-profile switch <name>` over SSH — see
@@ -76,8 +78,15 @@ Or an iOS Shortcut running `/home/root/profiles/rm-profile switch <name>` over S
 
 Switching over wifi needs SSH over wifi turned on first. Newer reMarkable OS only
 listens for SSH on USB, so `docs/INSTALL.md` covers enabling it in every profile. It also
-covers `bin/rm-ssh-forced`, a forced command that limits the wifi-exposed key to switching
-profiles. Edit its allowlist to match your profile names.
+covers `bin/rm-ssh-forced`, a forced command that limits the wifi-exposed key to
+`rm-profile switch <name>`. It accepts any existing profile with a safe name, so there is
+no list of names to edit.
+
+## Existing installs
+
+Installs made with older default profile names keep working. Updating the scripts leaves
+your profiles under their current names. Renaming them to `user1` and `user2` is optional. `docs/INSTALL.md` has the
+commands under [Existing installs](docs/INSTALL.md#existing-installs).
 
 ## Layout
 
@@ -98,8 +107,8 @@ docs/INSTALL.md             on-device runbook
 
 ```
 cd pad && cargo test -p rmprofile-core        # core logic (12 tests)
-bats tests/                                    # engine + hash-consistency (14 tests)
-shellcheck -s sh bin/rm-profile scripts/*      # lint
+bats tests/                                    # engine, forced command, hash (28 tests)
+shellcheck -s sh bin/* scripts/*               # lint
 ```
 
 ## Supported
