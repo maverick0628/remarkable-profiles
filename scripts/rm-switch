@@ -6,9 +6,9 @@
 # unlocks with their own native PIN.
 #
 # Usage:   rm-switch <profile> [host]
-# Example: rm-switch kid            # uses default host
-#          rm-switch duncan 192.168.1.50
-#          RM_HOST=remarkable.lan rm-switch kid
+# Example: rm-switch user2            # uses default host
+#          rm-switch user1 192.168.1.50
+#          RM_HOST=remarkable.lan rm-switch user2
 #
 # Default host is the USB address; set RM_HOST (or pass a host) to the tablet's
 # wifi IP / hostname for over-the-network switching.

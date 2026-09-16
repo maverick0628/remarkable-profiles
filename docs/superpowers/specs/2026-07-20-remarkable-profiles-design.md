@@ -6,24 +6,24 @@
 
 ## Problem
 
-A single reMarkable 2 is shared between two people (owner and a child). The tablet
+A single reMarkable 2 is shared between two people, User 1 and User 2. The tablet
 natively binds one device to one account with one set of notebooks and one PIN. There
 is no built-in concept of user profiles, and no maintained community tool provides one
 (the only prior attempt, `Riebart/reMarkable-Profiles`, is an abandoned README-only
 stub).
 
 We want distinct user profiles that switch by PIN: power on or wake, type your PIN, land
-in your own notebooks. The owner's profile keeps its reMarkable cloud sync. The child's
+in your own notebooks. User 1's profile keeps its reMarkable cloud sync. User 2's
 profile is local-only.
 
 ## Goals
 
 - Two isolated profiles on one rM2: separate notebooks, separate PIN, separate cloud
   identity.
-- Owner profile retains existing documents and cloud sync (reMarkable Connect).
-- Child profile is local-only: its own notebooks, its own PIN, no cloud account, no
+- User 1's profile retains existing documents and cloud sync (reMarkable Connect).
+- User 2's profile is local-only: its own notebooks, its own PIN, no cloud account, no
   second Connect subscription.
-- Switching is driven by PIN entry (a custom lock screen), simple enough for a child to
+- Switching is driven by PIN entry (a custom lock screen), simple enough for anyone to
   operate unaided.
 - Non-destructive: switching never risks the other profile's data.
 - Survives reMarkable OS (OTA) updates with a documented reapply step.
@@ -35,7 +35,7 @@ profile is local-only.
   reMarkable. Do not present this as protecting data against a technical adversary.
 - No separate wifi per profile (wifi is system-level, stays shared).
 - No separate templates per profile (templates stay shared by design — see Data model).
-- No cloud sync for the child profile.
+- No cloud sync for User 2's profile.
 - No parental controls or content filtering.
 - No support for reMarkable 1 or the Paper Pro family in this version. rM2 only.
 
@@ -70,13 +70,13 @@ Per-profile state lives under `/home/root/profiles/<name>/`:
 
 - `xochitl/` — documents (mirror of `~/.local/share/remarkable/xochitl/`)
 - `config/` — configuration (mirror of `~/.config/remarkable/`), containing that
-  profile's PIN and, for the owner, the cloud token
+  profile's PIN and, for User 1, the cloud token
 
 Live paths become **directory** symlinks resolved through a single active pointer:
 
 - `~/.local/share/remarkable/xochitl`  →  `/home/root/profiles/active/xochitl`
 - `~/.config/remarkable`               →  `/home/root/profiles/active/config`
-- `/home/root/profiles/active`         →  `duncan` | `kid`
+- `/home/root/profiles/active`         →  `user1` | `user2`
 
 Symlinking the config **directory** (not the single `xochitl.conf` file) avoids the
 write-temp-then-rename clobber that would silently replace a file-level symlink with a
@@ -132,8 +132,8 @@ The pad runs as a systemd unit (`rm-profile-pad.service`) that gates xochitl:
   `systemctl start xochitl` only after a correct PIN.
 - **Phase 1 behavior:** the pad appears at **cold boot** and on a deliberate switch
   action. Within a single session, sleep/wake stays in the active profile. Switching
-  users is an explicit act: a power cycle (child-friendly: off → on → type PIN, ~15s) or
-  a phone/SSH trigger for the owner.
+  users is an explicit act: a power cycle (off → on → type PIN, ~15s) or a phone/SSH
+  trigger.
 
 Phase 1 is the shipping target. It is fully on-device, low-risk, and does not depend on
 winning any race with xochitl.
@@ -150,9 +150,9 @@ proves unreliable, Phase 1 stands on its own. Not committed for the first releas
 
 1. **Backup first.** Full off-device `rsync` of `~/.local/share/remarkable/` and
    `~/.config/remarkable/` before any change. Nothing proceeds without a verified backup.
-2. **Migrate.** Move current data into `profiles/duncan/` (documents + config, including
+2. **Migrate.** Move current data into `profiles/user1/` (documents + config, including
    the live cloud token). Establish the symlinks and active pointer.
-3. **Create child profile.** `rm-profile create kid` — empty notebooks, a set PIN, no
+3. **Create User 2's profile.** `rm-profile create user2` — empty notebooks, a set PIN, no
    cloud token (never paired ⇒ never syncs).
 4. **Install** the `rm-profile` engine, the pad binary, `pins.conf`, and the systemd
    unit; disable xochitl native lock in both profiles; disable xochitl auto-start.
@@ -170,7 +170,7 @@ reMarkable OTA updates replace the rootfs (A/B partitions), which can wipe chang
 
 ## Threat model
 
-- **In scope:** casual privacy between household members (child does not see owner's
+- **In scope:** casual privacy between household members (User 2 does not see User 1's
   notebooks and vice versa); convenience of one shared device.
 - **Out of scope:** any adversary with USB or SSH access. Root can read every profile.
   The PIN gate is a convenience lock, not encryption. State this plainly in user-facing
@@ -179,7 +179,7 @@ reMarkable OTA updates replace the rootfs (A/B partitions), which can wipe chang
 ## Build and test plan
 
 - **Engine:** `bats` tests for `rm-profile` (create/list/switch/status; asserts document
-  isolation, no data loss, cloud token present only in owner profile). Runnable against a
+  isolation, no data loss, cloud token present only in User 1's profile). Runnable against a
   scratch dir off-device and validated on-device.
 - **Pad logic:** Rust unit tests for PIN hashing and PIN→profile mapping.
 - **Pad UI:** manual on-device testing (keypad render, touch, wrong-PIN, launch).
@@ -210,7 +210,7 @@ reMarkable OTA updates replace the rootfs (A/B partitions), which can wipe chang
 
 - Exact `xochitl.conf` key names for PIN and cloud token (resolved in Phase 0).
 - Confirm rM2 OS version and current SSH access method before install.
-- Method to pause auto-updates on the owner's current OS version (resolved in Phase 0).
+- Method to pause auto-updates on the tablet's current OS version (resolved in Phase 0).
 
 ## Outcome addendum (2026-07-20)
 
@@ -222,11 +222,11 @@ Installed on-device the same day. Phase 0 found the target rM2 running **OS 3.27
   exists (`mxs-lcdif`, 32bpp, packed 260×23936) but is xochitl-owned and can't be driven
   directly without documented format/refresh handling. So auto-by-PIN is blocked on
   OS > 3.3 — it would require reverse-engineering the framebuffer for a 2026 build.
-- **Shipped the engine + handoff model instead.** Two isolated profiles (`duncan`
-  cloud-synced, `kid` local-only), switched via `rm-profile switch` triggered from an
+- **Shipped the engine + handoff model instead.** Two isolated profiles (`user1`
+  cloud-synced, `user2` local-only), switched via `rm-profile switch` triggered from an
   iPhone shortcut / SSH. Each unlocks with its own native PIN. Confirmed on-device:
-  kid shows an empty library and has zero cloud tokens; owner profile unchanged.
-- The child config is seeded from a sanitized copy of the owner config (cloud tokens +
+  User 2 shows an empty library and has zero cloud tokens. User 1's profile is unchanged.
+- User 2's config is seeded from a sanitized copy of User 1's config (cloud tokens +
   passcode stripped) so it is onboarded and local-only without forced account sign-in.
 
 The pad code (`pad/`, `systemd/`, `scripts/rm-profile-setup`) is retained for OS ≤ 3.3 and

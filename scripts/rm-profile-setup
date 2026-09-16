@@ -1,18 +1,26 @@
 #!/bin/sh
 # rm-profile-setup — one-time install of reMarkable Profiles on a reMarkable 2.
 #
-# Backs up current data, migrates it into an owner profile, creates a local-only
-# child profile, installs the engine + pad + systemd gate, and sets PINs.
+# Backs up current data, moves it into the User 1 profile, creates a local-only
+# User 2 profile, installs the engine + pad + systemd gate and sets PINs.
 #
 # DESTRUCTIVE. Run once, on-device, over SSH, as root. Use --dry-run first to
 # see every action without touching anything. This is convenience + basic
 # privacy, not a security boundary.
 #
+# Usage: rm-profile-setup [--dry-run] [user-1-name] [user-2-name]
+# Defaults: user1 user2
+#
 # Paths are env-overridable so --dry-run can target a scratch tree.
 set -eu
 
 DRY_RUN=0
-[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+if [ "${1:-}" = "--dry-run" ]; then
+  DRY_RUN=1
+  shift
+fi
+USER1="${1:-user1}"
+USER2="${2:-user2}"
 
 SHARE_DIR="${RMP_SHARE_DIR:-/home/root/.local/share/remarkable}"
 CONFIG_DIR="${RMP_CONFIG_DIR:-/home/root/.config/remarkable}"
@@ -68,15 +76,15 @@ confirm "Have you copied the backup off-device?"
 say "Step 2/7: stop xochitl"
 run systemctl stop xochitl
 
-# --- 3. migrate current data into the owner profile ---
-say "Step 3/7: migrate current data into '$PROFILES_DIR/duncan'"
-run mkdir -p "$PROFILES_DIR/duncan"
-run mv "$SHARE_DIR/xochitl" "$PROFILES_DIR/duncan/xochitl"
-run mv "$CONFIG_DIR" "$PROFILES_DIR/duncan/config"
+# --- 3. migrate current data into the User 1 profile ---
+say "Step 3/7: migrate current data into '$PROFILES_DIR/$USER1'"
+run mkdir -p "$PROFILES_DIR/$USER1"
+run mv "$SHARE_DIR/xochitl" "$PROFILES_DIR/$USER1/xochitl"
+run mv "$CONFIG_DIR" "$PROFILES_DIR/$USER1/config"
 
 # --- 4. live symlinks + active pointer ---
 say "Step 4/7: create live symlinks and active pointer"
-run ln -sfn duncan "$PROFILES_DIR/active"
+run ln -sfn "$USER1" "$PROFILES_DIR/active"
 run ln -sfn "$PROFILES_DIR/active/xochitl" "$SHARE_DIR/xochitl"
 run ln -sfn "$PROFILES_DIR/active/config" "$CONFIG_DIR"
 
@@ -90,18 +98,18 @@ run cp "$SRC/systemd/rm-profile-pad.service" "$UNIT_DIR/rm-profile-pad.service"
 run systemctl daemon-reload
 run systemctl enable rm-profile-pad.service
 
-# --- 6. create child profile ---
-say "Step 6/7: create local-only child profile"
-run "$PROFILES_DIR/rm-profile" create kid
+# --- 6. create User 2 profile ---
+say "Step 6/7: create local-only User 2 profile '$USER2'"
+run "$PROFILES_DIR/rm-profile" create "$USER2"
 
 # --- 7. set PINs ---
 say "Step 7/7: set PINs (stored as salted hashes in $PROFILES_DIR/pins.conf)"
 if [ "$DRY_RUN" = "1" ]; then
-  printf 'DRY-RUN: rm-profile set-pin duncan <prompt>\n'
-  printf 'DRY-RUN: rm-profile set-pin kid <prompt>\n'
+  printf 'DRY-RUN: rm-profile set-pin %s <prompt>\n' "$USER1"
+  printf 'DRY-RUN: rm-profile set-pin %s <prompt>\n' "$USER2"
 else
-  RMP_PROFILES_DIR="$PROFILES_DIR" "$PROFILES_DIR/rm-profile" set-pin duncan
-  RMP_PROFILES_DIR="$PROFILES_DIR" "$PROFILES_DIR/rm-profile" set-pin kid
+  RMP_PROFILES_DIR="$PROFILES_DIR" "$PROFILES_DIR/rm-profile" set-pin "$USER1"
+  RMP_PROFILES_DIR="$PROFILES_DIR" "$PROFILES_DIR/rm-profile" set-pin "$USER2"
 fi
 
 say "Done. Review docs/INSTALL.md for the rm2fb setup and boot-model choice,"

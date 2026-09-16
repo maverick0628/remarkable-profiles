@@ -46,7 +46,7 @@ pad/pad/                           # rm-profile-pad: libremarkable framebuffer b
   src/main.rs
 pad/Cross.toml                     # cross target config
 systemd/rm-profile-pad.service     # boot gate unit
-scripts/rm-profile-setup           # device install: backup -> migrate -> create kid -> install
+scripts/rm-profile-setup           # device install: backup -> migrate -> create user2 -> install
 scripts/reapply.sh                 # post-OTA reinstall of /etc bits + symlink re-assert
 tests/rm-profile.bats              # bats tests for the engine
 tests/hash-consistency.bats        # asserts shell hash == known vector (matches Rust)
@@ -107,9 +107,9 @@ Step 3 and copied verbatim into `tests/hash-consistency.bats` in Task 2.
   stdin for interactive use.
 
 - [ ] **Step 1: Write failing bats** (`tests/rm-profile.bats`): setup creates a temp
-  `RMP_PROFILES_DIR` with `duncan/{xochitl,config}` + `active->duncan`, exports
+  `RMP_PROFILES_DIR` with `user1/{xochitl,config}` + `active->user1`, exports
   `RMP_STOP_CMD=: RMP_START_CMD=: RMP_STATUS_CMD='echo active'`. Cases: `list` marks
-  active; `create kid` makes dirs; `switch kid` repoints `active` and calls stop/start
+  active; `create user2` makes dirs; `switch user2` repoints `active` and calls stop/start
   (assert via a stop/start that `touch`es a marker file); `switch` to missing profile
   fails non-zero and leaves `active` unchanged; `switch` to current is a no-op; `set-pin`
   writes a parseable `name:salt:hash` line with 0600 perms.
@@ -170,8 +170,8 @@ boot is device-specific).
 `rm-profile-setup` (POSIX sh, `set -eu`, device-only, supports `--dry-run`):
 mandatory verified backup of `~/.local/share/remarkable` + `~/.config/remarkable` →
 `/home/root/profiles-backup-<date>` with an explicit "copy this off-device" prompt; stop
-xochitl; migrate current data into `profiles/duncan/`; create live dir-symlinks
-(`xochitl` and the `config` dir, NOT the single conf file); `rm-profile create kid`;
+xochitl; migrate current data into `profiles/user1/`; create live dir-symlinks
+(`xochitl` and the `config` dir, NOT the single conf file); `rm-profile create user2`;
 `set-pin` for both; remove any native passcode from migrated configs (best-effort, with a
 manual-confirm note since the exact key is confirmed in Phase 0); install the unit,
 `systemctl disable xochitl`, enable the pad; prompt to reboot.

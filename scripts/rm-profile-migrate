@@ -2,17 +2,21 @@
 # rm-profile-migrate — engine-only install (no PIN pad).
 #
 # The shipped model for reMarkable OS newer than ~3.3, where rm2fb (and thus the
-# custom PIN pad) does not work. Migrates current data into an owner profile and
-# creates a local-only child profile seeded from a sanitized copy of the owner
-# config (cloud tokens + passcode stripped, so the child cannot sync to the
-# owner's account). After this, switch with `rm-profile switch <name>` — e.g.
-# from an SSH one-liner or a phone shortcut (see scripts/rm-switch).
+# custom PIN pad) does not work. Moves current data into the User 1 profile and
+# creates a local-only User 2 profile seeded from a sanitized copy of User 1's
+# config. Cloud tokens and passcode are stripped, so User 2 cannot sync to User 1's
+# account. After this, switch with `rm-profile switch <name>` from an SSH
+# one-liner or a phone shortcut (see scripts/rm-switch).
 #
 # DESTRUCTIVE. Runs once, on-device, as root. Use --dry-run first. Back up first
 # (this script also backs up). Convenience + basic privacy, not security.
 #
-# Usage: rm-profile-migrate [--dry-run] [owner-name] [child-name]
-# Defaults: owner=duncan child=kid
+# Usage: rm-profile-migrate [--dry-run] [user-1-name] [user-2-name]
+# Defaults: user1 user2
+#
+# Pick names made of lowercase letters, digits, `_` and `-`, starting with a
+# letter or digit and 32 characters at most. bin/rm-ssh-forced only lets the
+# wifi key switch to names like that.
 set -eu
 
 DRY_RUN=0
@@ -20,8 +24,8 @@ if [ "${1:-}" = "--dry-run" ]; then
   DRY_RUN=1
   shift
 fi
-OWNER="${1:-duncan}"
-CHILD="${2:-kid}"
+USER1="${1:-user1}"
+USER2="${2:-user2}"
 
 SHARE_DIR="${RMP_SHARE_DIR:-/home/root/.local/share/remarkable}"
 CONFIG_DIR="${RMP_CONFIG_DIR:-/home/root/.config/remarkable}"
@@ -52,8 +56,8 @@ confirm() {
 
 # Strip cloud tokens + passcode from a profile config, in place. Kept as a
 # function so --dry-run can describe it without editing anything.
-sanitize_child_config() {
-  conf="$PROFILES_DIR/$CHILD/config/xochitl.conf"
+sanitize_user2_config() {
+  conf="$PROFILES_DIR/$USER2/config/xochitl.conf"
   if [ "$DRY_RUN" = "1" ]; then
     printf 'DRY-RUN: strip devicetoken/usertoken/UserToken/Passcode from %s\n' "$conf"
     return 0
@@ -66,11 +70,11 @@ if [ "$DRY_RUN" = "0" ]; then
   [ "$(id -u)" = "0" ] || die "must run as root"
   [ -d "$SHARE_DIR/xochitl" ] || die "no reMarkable data at $SHARE_DIR/xochitl — is this an rM2?"
   [ -L "$SHARE_DIR/xochitl" ] && die "$SHARE_DIR/xochitl is already a symlink — already migrated?"
-  [ -e "$PROFILES_DIR/$OWNER" ] && die "profile '$OWNER' already exists"
+  [ -e "$PROFILES_DIR/$USER1" ] && die "profile '$USER1' already exists"
   [ -x "$SRC/bin/rm-profile" ] || die "engine not found at $SRC/bin/rm-profile"
 fi
 
-say "engine-only migrate (dry-run=$DRY_RUN): owner=$OWNER child=$CHILD"
+say "engine-only migrate (dry-run=$DRY_RUN): user 1=$USER1 user 2=$USER2"
 
 say "1/6 backup to $BACKUP_DIR (copy it OFF-device after)"
 run mkdir -p "$BACKUP_DIR"
@@ -81,25 +85,25 @@ confirm "Backup done. Have you copied it off-device?"
 say "2/6 stop xochitl"
 run systemctl stop xochitl
 
-say "3/6 migrate current data into '$OWNER'"
-run mkdir -p "$PROFILES_DIR/$OWNER"
-run mv "$SHARE_DIR/xochitl" "$PROFILES_DIR/$OWNER/xochitl"
-run mv "$CONFIG_DIR" "$PROFILES_DIR/$OWNER/config"
+say "3/6 migrate current data into User 1 '$USER1'"
+run mkdir -p "$PROFILES_DIR/$USER1"
+run mv "$SHARE_DIR/xochitl" "$PROFILES_DIR/$USER1/xochitl"
+run mv "$CONFIG_DIR" "$PROFILES_DIR/$USER1/config"
 
-say "4/6 create live symlinks (active -> $OWNER)"
-run ln -sfn "$OWNER" "$PROFILES_DIR/active"
+say "4/6 create live symlinks (active -> $USER1)"
+run ln -sfn "$USER1" "$PROFILES_DIR/active"
 run ln -sfn "$PROFILES_DIR/active/xochitl" "$SHARE_DIR/xochitl"
 run ln -sfn "$PROFILES_DIR/active/config" "$CONFIG_DIR"
 
-say "5/6 create local-only child '$CHILD' (sanitized config, empty library)"
-run mkdir -p "$PROFILES_DIR/$CHILD/xochitl"
-run cp -a "$PROFILES_DIR/$OWNER/config" "$PROFILES_DIR/$CHILD/config"
-sanitize_child_config
+say "5/6 create local-only User 2 '$USER2' (sanitized config, empty library)"
+run mkdir -p "$PROFILES_DIR/$USER2/xochitl"
+run cp -a "$PROFILES_DIR/$USER1/config" "$PROFILES_DIR/$USER2/config"
+sanitize_user2_config
 
 say "6/6 install engine + start xochitl"
 run cp "$SRC/bin/rm-profile" "$PROFILES_DIR/rm-profile"
 run chmod +x "$PROFILES_DIR/rm-profile"
 run systemctl start xochitl
 
-say "Done. Switch with: $PROFILES_DIR/rm-profile switch $CHILD"
-say "The child has no PIN yet — set one on-device via Settings if desired."
+say "Done. Switch with: $PROFILES_DIR/rm-profile switch $USER2"
+say "User 2 has no PIN yet. Set one on-device in Settings if you want one."
